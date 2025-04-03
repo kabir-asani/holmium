@@ -142,4 +142,5 @@ jobs:
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ env.TAG_NAME }}
+            --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ env.TAG_NAME }} \
+            --registry-server holmium1si16cs060.azurecr.io
