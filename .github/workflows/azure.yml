@@ -37,16 +37,26 @@ jobs:
       # ────────────────────────────────────────────────
       - name: Check Resource Group exists
         run: |
-          echo "🔍 Checking resource group: ${{ env.RESOURCE_GROUP }}"
-          if ! az group show --name "${{ env.RESOURCE_GROUP }}" &> /dev/null; then
-            echo "❌ Resource group not found. Please create it manually."
+          RG_EXISTS=$(az group show \
+            --name "${{ env.RESOURCE_GROUP }}" \
+            --query name \
+            --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$RG_EXISTS" ]; then
+            echo "❌ Resource group '${{ env.RESOURCE_GROUP }}' not found."
+            echo "👉 Please create it manually first."
             exit 1
           fi
-          echo "✅ Resource group found."
 
       - name: Ensure Log Analytics Workspace
         run: |
-          if ! az monitor log-analytics workspace show --resource-group "${{ env.RESOURCE_GROUP }}" --workspace-name "${{ env.LOG_ANALYTICS_WORKSPACE }}" &> /dev/null; then
+          WORKSPACE_EXISTS=$(az monitor log-analytics workspace show \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --workspace-name "${{ env.LOG_ANALYTICS_WORKSPACE }}" \
+            --query id \
+            --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$WORKSPACE_EXISTS" ]; then
             az monitor log-analytics workspace create \
               --resource-group "${{ env.RESOURCE_GROUP }}" \
               --workspace-name "${{ env.LOG_ANALYTICS_WORKSPACE }}" \
@@ -71,7 +81,14 @@ jobs:
       - name: Ensure Azure Container Registry (ACR)
         run: |
           REGISTRY_NAME=$(echo "${{ env.ACR_REGISTRY }}" | cut -d'.' -f1)
-          if ! az acr show --name "$REGISTRY_NAME" --resource-group "${{ env.RESOURCE_GROUP }}" &> /dev/null; then
+
+          ACR_EXISTS=$(az acr show \
+            --name "$REGISTRY_NAME" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --query name \
+            --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$ACR_EXISTS" ]; then
             az acr create \
               --name "$REGISTRY_NAME" \
               --resource-group "${{ env.RESOURCE_GROUP }}" \
@@ -89,7 +106,13 @@ jobs:
 
       - name: Ensure Container Apps Environment
         run: |
-          if ! az containerapp env show --name "${{ env.CONTAINER_APPS_ENVIRONMENT }}" --resource-group "${{ env.RESOURCE_GROUP }}" &> /dev/null; then
+          ENV_EXISTS=$(az containerapp env show \
+            --name "${{ env.CONTAINER_APPS_ENVIRONMENT }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --query name \
+            --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$ENV_EXISTS" ]; then
             az containerapp env create \
               --name "${{ env.CONTAINER_APPS_ENVIRONMENT }}" \
               --resource-group "${{ env.RESOURCE_GROUP }}" \
