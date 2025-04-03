@@ -14,7 +14,6 @@ env:
   ACR_REPOSITORY_NAME: holmium
   CONTAINER_APP_NAME: holmium
   TARGET_PORT: 3000
-  SUBSCRIPTION_ID: 480bb9b7-b15c-40cc-a96a-9d221c425df3
 
 jobs:
   build-and-deploy:
