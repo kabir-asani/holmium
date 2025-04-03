@@ -25,19 +25,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract tag name
-        id: extract_tag
-        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
-
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_GITHUB_ACTIONS }}
 
-      - name: Ensure Resource Group exists
+      - name: Check if Resource Group exists
         run: |
-          az group show --name ${{ env.RESOURCE_GROUP }} || \
-          az group create --name ${{ env.RESOURCE_GROUP }} --location ${{ env.AZURE_REGION }}
+          echo "🔍 Checking if resource group '${{ env.RESOURCE_GROUP }}' exists..."
+          if az group show --name ${{ env.RESOURCE_GROUP }} > /dev/null 2>&1; then
+            echo "✅ Resource group '${{ env.RESOURCE_GROUP }}' found."
+          else
+            echo "❌ Resource group '${{ env.RESOURCE_GROUP }}' not found."
+            echo "💡 Please create the resource group manually before running this workflow."
+            exit 1
+          fi
 
       - name: Ensure Log Analytics Workspace exists
         run: |
@@ -107,7 +109,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ env.TAG_NAME }}
+          tags: ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ github.ref_name }}
 
       - name: Create Container App with system-assigned identity
         run: |
@@ -125,26 +127,10 @@ jobs:
       - name: Assign AcrPull to Container App's identity
         run: |
           REGISTRY_NAME=$(echo "${{ env.AZURE_CONTAINER_REGISTRY }}" | cut -d'.' -f1)
-
-          echo "Waiting for Container App identity to be ready..."
-          for i in {1..20}; do
-            PRINCIPAL_ID=$(az containerapp show \
+          PRINCIPAL_ID=$(az containerapp show \
               --name ${{ env.CONTAINER_APP_NAME }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
               --query identity.principalId --output tsv)
-            if [ -n "$PRINCIPAL_ID" ]; then
-              echo "✅ Found identity: $PRINCIPAL_ID"
-              break
-            else
-              echo "⏳ Still waiting... ($i)"
-              sleep 5
-            fi
-          done
-
-          if [ -z "$PRINCIPAL_ID" ]; then
-            echo "❌ Failed to retrieve identity after waiting. Aborting."
-            exit 1
-          fi
 
           az role assignment create \
             --assignee-object-id "$PRINCIPAL_ID" \
@@ -152,12 +138,11 @@ jobs:
             --role "AcrPull" \
             --scope /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.ContainerRegistry/registries/$REGISTRY_NAME
 
-      - name: Wait for role propagation
-        run: sleep 20
-
       - name: Update Container App with real image
         run: |
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ env.TAG_NAME }}
+            --registry-identity System
+            --registry-server ${{ env.AZURE_CONTAINER_REGISTRY }}
+            --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ github.ref_name }}
