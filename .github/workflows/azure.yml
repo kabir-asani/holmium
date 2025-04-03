@@ -122,31 +122,14 @@ jobs:
               --system-assigned
           fi
 
-      - name: Wait for Container App principalId and assign AcrPull
+      - name: Assign AcrPull to Container App
         run: |
           REGISTRY_NAME=$(echo "${{ env.AZURE_CONTAINER_REGISTRY }}" | cut -d'.' -f1)
 
-          echo "Waiting for Container App identity to be ready..."
-
-          for i in {1..20}; do
-            PRINCIPAL_ID=$(az containerapp show \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --query identity.principalId --output tsv)
-
-            if [ -n "$PRINCIPAL_ID" ]; then
-              echo "✅ Found identity: $PRINCIPAL_ID"
-              break
-            else
-              echo "⏳ principalId not yet available. Retrying in 5s..."
-              sleep 5
-            fi
-          done
-
-          if [ -z "$PRINCIPAL_ID" ]; then
-            echo "❌ Failed to fetch principalId after 20 attempts. Aborting."
-            exit 1
-          fi
+          PRINCIPAL_ID=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query identity.principalId --output tsv)
 
           az role assignment create \
             --assignee "$PRINCIPAL_ID" \
