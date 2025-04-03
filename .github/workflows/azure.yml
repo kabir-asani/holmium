@@ -122,14 +122,29 @@ jobs:
               --system-assigned
           fi
 
-      - name: Assign AcrPull to Container App
+      - name: Assign AcrPull to Container App's identity
         run: |
           REGISTRY_NAME=$(echo "${{ env.AZURE_CONTAINER_REGISTRY }}" | cut -d'.' -f1)
 
-          PRINCIPAL_ID=$(az containerapp show \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query identity.principalId --output tsv)
+          echo "Waiting for Container App identity to be ready..."
+          for i in {1..20}; do
+            PRINCIPAL_ID=$(az containerapp show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --query identity.principalId --output tsv)
+            if [ -n "$PRINCIPAL_ID" ]; then
+              echo "✅ Found identity: $PRINCIPAL_ID"
+              break
+            else
+              echo "⏳ Still waiting... ($i)"
+              sleep 5
+            fi
+          done
+
+          if [ -z "$PRINCIPAL_ID" ]; then
+            echo "❌ Failed to retrieve identity after waiting. Aborting."
+            exit 1
+          fi
 
           az role assignment create \
             --assignee-object-id "$PRINCIPAL_ID" \
@@ -137,10 +152,12 @@ jobs:
             --role "AcrPull" \
             --scope /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.ContainerRegistry/registries/$REGISTRY_NAME
 
+      - name: Wait for role propagation
+        run: sleep 20
+
       - name: Update Container App with real image
         run: |
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ env.TAG_NAME }} \
-            --registry-server holmium1si16cs060.azurecr.io
+            --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ env.TAG_NAME }}
