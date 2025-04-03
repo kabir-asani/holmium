@@ -121,8 +121,9 @@ jobs:
               --target-port ${{ env.TARGET_PORT }} \
               --image nginx \
               --system-assigned true
+              - name: Wait for Container App principalId and assign AcrPull
           fi
-          - name: Wait for Container App principalId and assign AcrPull
+
           run: |
             REGISTRY_NAME=$(echo "${{ env.AZURE_CONTAINER_REGISTRY }}" | cut -d'.' -f1)
 
