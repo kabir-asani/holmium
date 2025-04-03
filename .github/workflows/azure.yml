@@ -10,8 +10,8 @@ env:
   RESOURCE_GROUP: Holmium
   CONTAINER_APPS_ENVIRONMENT: holmium-container-environment
   LOG_ANALYTICS_WORKSPACE: holmium-log-analytics-workspace
-  AZURE_CONTAINER_REGISTRY: holmium1si16cs060.azurecr.io
-  REPOSITORY_NAME: holmium
+  ACR_REGISTRY: holmium1si16cs060.azurecr.io
+  ACR_REPOSITORY_NAME: holmium
   APP_NAME: holmium
   CONTAINER_APP_NAME: holmium
   TARGET_PORT: 3000
@@ -30,7 +30,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_GITHUB_ACTIONS }}
 
-      - name: Check if Resource Group exists
+      - name: Ensure appropriate "Resource Group" exists
         run: |
           echo "🔍 Checking if resource group '${{ env.RESOURCE_GROUP }}' exists..."
           if az group show --name ${{ env.RESOURCE_GROUP }} > /dev/null 2>&1; then
@@ -41,7 +41,7 @@ jobs:
             exit 1
           fi
 
-      - name: Ensure Log Analytics Workspace exists
+      - name: Create an appropriate "Log Analytics Workspace" if it doesn't already exists
         run: |
           if ! az monitor log-analytics workspace show --resource-group ${{ env.RESOURCE_GROUP }} --workspace-name ${{ env.LOG_ANALYTICS_WORKSPACE }} > /dev/null 2>&1; then
             az monitor log-analytics workspace create \
@@ -49,9 +49,6 @@ jobs:
               --workspace-name ${{ env.LOG_ANALYTICS_WORKSPACE }} \
               --location ${{ env.AZURE_REGION }}
           fi
-
-      - name: Retrieve Log Analytics Workspace credentials
-        run: |
           WORKSPACE_ID=$(az monitor log-analytics workspace show \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --workspace-name ${{ env.LOG_ANALYTICS_WORKSPACE }} \
@@ -65,9 +62,9 @@ jobs:
           echo "WORKSPACE_ID=$WORKSPACE_ID" >> $GITHUB_ENV
           echo "WORKSPACE_KEY=$WORKSPACE_KEY" >> $GITHUB_ENV
 
-      - name: Ensure Azure Container Registry exists
+      - name: Create an appropriate "Azure Container Registry" if it doesn't already exists
         run: |
-          REGISTRY_NAME=$(echo "${{ env.AZURE_CONTAINER_REGISTRY }}" | cut -d'.' -f1)
+          REGISTRY_NAME=$(echo "${{ env.ACR_REGISTRY }}" | cut -d'.' -f1)
           if ! az acr show --name $REGISTRY_NAME --resource-group ${{ env.RESOURCE_GROUP }} > /dev/null 2>&1; then
             az acr create \
               --name $REGISTRY_NAME \
@@ -82,7 +79,7 @@ jobs:
           echo "ACR_USERNAME=$ACR_USERNAME" >> $GITHUB_ENV
           echo "ACR_PASSWORD=$ACR_PASSWORD" >> $GITHUB_ENV
 
-      - name: Ensure Container Apps Environment exists
+      - name: Create an appropriate "Container Apps Environment" if it doesn't already exists
         run: |
           if ! az containerapp env show --name ${{ env.CONTAINER_APPS_ENVIRONMENT }} --resource-group ${{ env.RESOURCE_GROUP }} > /dev/null 2>&1; then
             az containerapp env create \
@@ -96,53 +93,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Azure Container Registry
+      - name: Login to "Azure Container Registry"
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.AZURE_CONTAINER_REGISTRY }}
+          registry: ${{ env.ACR_REGISTRY }}
           username: ${{ env.ACR_USERNAME }}
           password: ${{ env.ACR_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Build and push Docker image based off of the given Dockerfile
         uses: docker/build-push-action@v6.15.0
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ github.ref_name }}
+          tags: ${{ env.ACR_REGISTRY }}/${{ env.ACR_REPOSITORY_NAME }}:${{ github.ref_name }}
 
-      - name: Create Container App with system-assigned identity
+      - name: Create/update "Container App" with real image
         run: |
-          if ! az containerapp show --name ${{ env.CONTAINER_APP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} > /dev/null 2>&1; then
-            az containerapp create \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --environment ${{ env.CONTAINER_APPS_ENVIRONMENT }} \
-              --ingress external \
-              --target-port ${{ env.TARGET_PORT }} \
-              --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
-              --system-assigned
-          fi
-
-      - name: Assign AcrPull to Container App's identity
-        run: |
-          REGISTRY_NAME=$(echo "${{ env.AZURE_CONTAINER_REGISTRY }}" | cut -d'.' -f1)
-          PRINCIPAL_ID=$(az containerapp show \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --query identity.principalId --output tsv)
-
-          az role assignment create \
-            --assignee-object-id "$PRINCIPAL_ID" \
-            --assignee-principal-type ServicePrincipal \
-            --role "AcrPull" \
-            --scope /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.ContainerRegistry/registries/$REGISTRY_NAME
-
-      - name: Update Container App with real image
-        run: |
-          az containerapp update \
+          az containerapp up \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --registry-identity System
-            --registry-server ${{ env.AZURE_CONTAINER_REGISTRY }}
-            --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ github.ref_name }}
+            --environment ${{ env.CONTAINER_APPS_ENVIRONMENT }} \
+            --ingress external \
+            --target-port ${{ env.TARGET_PORT }} \
+            --location ${{ env.AZURE_REGION }}
+            --registry-server ${{ env.ACR_REGISTRY }}
+            --registry-username ${{ env.ACR_USERNAME }}
+            --registry-password ${{ env.ACR_PASSWORD }}
+            --image ${{ env.ACR_REGISTRY }}/${{ env.ACR_REPOSITORY_NAME }}:${{ github.ref_name }}
