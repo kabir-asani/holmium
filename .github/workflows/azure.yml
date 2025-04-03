@@ -110,7 +110,6 @@ jobs:
           tags: ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.REPOSITORY_NAME }}:${{ env.TAG_NAME }}
 
       - name: Create empty Container App (for identity provisioning)
-        if: ${{ !cancelled() }}
         run: |
           if ! az containerapp show --name ${{ env.CONTAINER_APP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} > /dev/null 2>&1; then
             az containerapp create \
